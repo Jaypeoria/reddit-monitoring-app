@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  reddit-oauth-service:
+    build: ./reddit-oauth-service
+    ports:
+      - "8081:8081"
+    environment:
+      - REDDIT_CLIENT_ID=Q1ZaxCxZDLaBk1s5ZpAvVg
+      - REDDIT_CLIENT_SECRET=QNDh09zBsBz0Lwm4X5FSmqdrC0vTEw
+
+  reddit-fetcher-service:
+    build: ./reddit-fetcher-service
+    ports:
+      - "8082:8082"
+    depends_on:
+      - reddit-oauth-service
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017
+
+  reddit-statistics-service:
+    build: ./reddit-statistics-service
+    ports:
+      - "8083:8083"
+    depends_on:
+      - mongo
+    environment:
+      - MONGO_URI=mongodb://mongo:27017
+
+  reddit-apigateway-service:
+    build: ./reddit-apigateway-service
+    ports:
+      - "8080:8080"
+    depends_on:
+      - reddit-fetcher-service
+      - reddit-statistics-service
+
+  mongo:
+    image: mongo
+    ports:
+      - "27017:27017"
