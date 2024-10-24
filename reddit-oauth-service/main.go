@@ -16,8 +16,11 @@ func main() {
 		log.Println("No .env file found. Using system environment variables.")
 	}
 
+	// Create an instance of the OAuth service
+	var oauthService oauth.IOAuthService = &oauth.OAuthService{}
+
 	r := gin.Default()
-	r.GET("/auth", oauth.GetOAuthToken)
+	r.GET("/auth", oauthService.GetOAuthToken)
 
 	if err := r.Run(":" + os.Getenv("PORT")); err != nil {
 		log.Fatalf("Failed to start OAuth service: %v", err)

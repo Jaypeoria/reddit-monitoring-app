@@ -8,31 +8,39 @@ import (
 	"sync"
 	"time"
 
-	//"jackhenry.com/reddit-fetcher-service/db"
+	"jackhenry.com/reddit-fetcher-service/db"
 
 	"github.com/gin-gonic/gin"
-	"jackhenry.com/reddit-fetcher-service/db"
 )
 
-type Post struct {
-	Author string `json:"author"`
-	Title  string `json:"title"`
-	Score  int    `json:"score"`
+// IFetcherService defines an interface for fetching Reddit posts
+type IFetcherService interface {
+	StartFetching(subreddit string)
+	GetPosts(c *gin.Context)
 }
 
+// FetcherService implements the IFetcherService interface
 type FetcherService struct {
 	Posts      []Post
 	mu         sync.Mutex
 	oauthToken string
 }
 
-func NewFetcherService() *FetcherService {
+// Post represents a Reddit post
+type Post struct {
+	Author string `json:"author"`
+	Title  string `json:"title"`
+	Score  int    `json:"score"`
+}
+
+// NewFetcherService creates a new instance of FetcherService
+func NewFetcherService() IFetcherService {
 	return &FetcherService{
 		Posts: make([]Post, 0),
 	}
 }
 
-// StartFetching fetches posts from a subreddit
+// StartFetching fetches posts from the specified subreddit and stores them in MongoDB
 func (f *FetcherService) StartFetching(subreddit string) {
 	delay := 2 * time.Second
 	f.refreshOAuthToken()
@@ -43,6 +51,7 @@ func (f *FetcherService) StartFetching(subreddit string) {
 	}
 }
 
+// fetchPosts fetches posts from Reddit API and stores them in MongoDB
 func (f *FetcherService) fetchPosts(subreddit string, delay time.Duration) time.Duration {
 	url := "https://oauth.reddit.com/r/" + subreddit + "/new.json"
 	req, _ := http.NewRequest("GET", url, nil)
@@ -85,7 +94,6 @@ func (f *FetcherService) fetchPosts(subreddit string, delay time.Duration) time.
 	for _, child := range response.Data.Children {
 		post := child.Data
 		f.Posts = append(f.Posts, post)
-		log.Printf("Post: %v", post)
 		db.InsertPost(post)
 	}
 	f.mu.Unlock()
@@ -102,6 +110,7 @@ func (f *FetcherService) fetchPosts(subreddit string, delay time.Duration) time.
 	return delay
 }
 
+// refreshOAuthToken refreshes the OAuth token by calling the OAuth service
 func (f *FetcherService) refreshOAuthToken() {
 	resp, err := http.Get("http://reddit-oauth-service:8081/auth")
 	if err != nil {
@@ -120,14 +129,7 @@ func (f *FetcherService) refreshOAuthToken() {
 	f.oauthToken = tokenResp.AccessToken
 }
 
-func (f *FetcherService) extractRateLimitHeaders(resp *http.Response) (used, remaining, reset int) {
-	used, _ = strconv.Atoi(resp.Header.Get("X-Ratelimit-Used"))
-	remaining, _ = strconv.Atoi(resp.Header.Get("X-Ratelimit-Remaining"))
-	reset, _ = strconv.Atoi(resp.Header.Get("X-Ratelimit-Reset"))
-	log.Printf("Rate Limit: Used: %d, Remaining: %d, Reset: %d", used, remaining, reset)
-	return used, remaining, reset
-}
-
+// GetPosts retrieves all posts stored in MongoDB
 func (f *FetcherService) GetPosts(c *gin.Context) {
 	posts, err := db.FindAllPosts()
 	if err != nil {
@@ -135,4 +137,13 @@ func (f *FetcherService) GetPosts(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"posts": posts})
+}
+
+// extractRateLimitHeaders extracts Reddit API rate limit headers
+func (f *FetcherService) extractRateLimitHeaders(resp *http.Response) (used, remaining, reset int) {
+	used, _ = strconv.Atoi(resp.Header.Get("X-Ratelimit-Used"))
+	remaining, _ = strconv.Atoi(resp.Header.Get("X-Ratelimit-Remaining"))
+	reset, _ = strconv.Atoi(resp.Header.Get("X-Ratelimit-Reset"))
+	log.Printf("Rate Limit: Used: %d, Remaining: %d, Reset: %d", used, remaining, reset)
+	return used, remaining, reset
 }

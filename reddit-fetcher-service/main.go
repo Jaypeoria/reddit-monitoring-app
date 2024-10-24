@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	"jackhenry.com/reddit-fetcher-service/db"
+	"jackhenry.com/reddit-fetcher-service/db" // MongoDB helper
 	"jackhenry.com/reddit-fetcher-service/fetcher"
 
 	"github.com/gin-gonic/gin"
@@ -18,11 +18,13 @@ func main() {
 	}
 
 	// Connect to MongoDB
-	db.Connect() // Call MongoDB connection
+	db.Connect()
+
+	// Create an instance of the Fetcher service
+	var fetcherService fetcher.IFetcherService = fetcher.NewFetcherService()
 
 	r := gin.Default()
-	fetcherService := fetcher.NewFetcherService()
-	go fetcherService.StartFetching("golang")
+	go fetcherService.StartFetching("golang") // Change this to your subreddit
 
 	r.GET("/fetch", fetcherService.GetPosts)
 

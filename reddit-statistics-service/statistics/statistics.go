@@ -4,23 +4,31 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/gin-gonic/gin"
 	"jackhenry.com/reddit-statistics-service/db"
+
+	"github.com/gin-gonic/gin"
 )
 
+// IStatisticsService defines an interface for statistics generation
+type IStatisticsService interface {
+	GetStats(c *gin.Context)
+}
+
+// StatisticsService implements the IStatisticsService interface
 type StatisticsService struct {
 	mu              sync.Mutex
 	mostUpvotedPost map[string]interface{}
 	userPostCounts  map[string]int
 }
 
-func NewStatisticsService() *StatisticsService {
+// NewStatisticsService creates a new instance of StatisticsService
+func NewStatisticsService() IStatisticsService {
 	return &StatisticsService{
 		userPostCounts: make(map[string]int),
 	}
 }
 
-// GetStats fetches statistics from MongoDB
+// GetStats retrieves statistics from MongoDB and returns them via the API
 func (s *StatisticsService) GetStats(c *gin.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

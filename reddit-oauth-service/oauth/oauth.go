@@ -10,6 +10,15 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// IOAuthService defines an interface for OAuth authentication
+type IOAuthService interface {
+	GetOAuthToken(c *gin.Context)
+}
+
+// OAuthService implements the IOAuthService interface
+type OAuthService struct{}
+
+// TokenResponse represents the response from Reddit's OAuth API
 type TokenResponse struct {
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
@@ -17,8 +26,8 @@ type TokenResponse struct {
 	Scope       string `json:"scope"`
 }
 
-// GetOAuthToken provides Reddit OAuth token
-func GetOAuthToken(c *gin.Context) {
+// GetOAuthToken retrieves an OAuth token from Reddit API
+func (o *OAuthService) GetOAuthToken(c *gin.Context) {
 	clientID := os.Getenv("REDDIT_CLIENT_ID")
 	clientSecret := os.Getenv("REDDIT_CLIENT_SECRET")
 

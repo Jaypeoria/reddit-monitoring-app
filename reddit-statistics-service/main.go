@@ -18,14 +18,12 @@ func main() {
 	}
 
 	// Connect to MongoDB
-	db.Connect() // Call MongoDB connection
+	db.Connect()
+
+	// Create an instance of the Statistics service
+	var statisticsService statistics.IStatisticsService = statistics.NewStatisticsService()
 
 	r := gin.Default()
-
-	// Create an instance of the Statistics Service
-	statisticsService := statistics.NewStatisticsService()
-
-	// Endpoint to get statistics
 	r.GET("/stats", statisticsService.GetStats)
 
 	if err := r.Run(":" + os.Getenv("PORT")); err != nil {
