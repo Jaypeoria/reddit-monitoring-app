@@ -4,8 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strconv"
-	"sync"
+
 	"time"
 
 	"jackhenry.com/reddit-fetcher-service/db"
@@ -21,8 +20,7 @@ type IFetcherService interface {
 
 // FetcherService implements the IFetcherService interface
 type FetcherService struct {
-	Posts      []Post
-	mu         sync.Mutex
+	postsChan  chan Post // Channel to handle posts
 	oauthToken string
 }
 
@@ -36,23 +34,25 @@ type Post struct {
 // NewFetcherService creates a new instance of FetcherService
 func NewFetcherService() IFetcherService {
 	return &FetcherService{
-		Posts: make([]Post, 0),
+		postsChan: make(chan Post), // Initialize the channel
 	}
 }
 
 // StartFetching fetches posts from the specified subreddit and stores them in MongoDB
 func (f *FetcherService) StartFetching(subreddit string) {
-	delay := 2 * time.Second
-	f.refreshOAuthToken()
+	// Start a goroutine to listen on the posts channel and process incoming posts
+	go f.processPosts()
 
+	// Start fetching posts
+	f.refreshOAuthToken()
 	for {
-		delay = f.fetchPosts(subreddit, delay)
-		time.Sleep(delay)
+		f.fetchPosts(subreddit)
+		time.Sleep(2 * time.Second)
 	}
 }
 
-// fetchPosts fetches posts from Reddit API and stores them in MongoDB
-func (f *FetcherService) fetchPosts(subreddit string, delay time.Duration) time.Duration {
+// fetchPosts fetches posts from Reddit API and sends them to the posts channel
+func (f *FetcherService) fetchPosts(subreddit string) {
 	url := "https://oauth.reddit.com/r/" + subreddit + "/new.json"
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Add("Authorization", "Bearer "+f.oauthToken)
@@ -62,19 +62,19 @@ func (f *FetcherService) fetchPosts(subreddit string, delay time.Duration) time.
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("Error fetching posts: %v", err)
-		return delay
+		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		log.Printf("OAuth token expired, refreshing token")
 		f.refreshOAuthToken()
-		return delay
+		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("Error: received non-200 status code: %v", resp.StatusCode)
-		return delay
+		return
 	}
 
 	var response struct {
@@ -87,27 +87,22 @@ func (f *FetcherService) fetchPosts(subreddit string, delay time.Duration) time.
 
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		log.Printf("Error decoding response: %v", err)
-		return delay
+		return
 	}
 
-	f.mu.Lock()
+	// Send the fetched posts to the posts channel for processing
 	for _, child := range response.Data.Children {
-		post := child.Data
-		f.Posts = append(f.Posts, post)
+		f.postsChan <- child.Data
+	}
+}
+
+// processPosts listens on the posts channel and processes each post
+func (f *FetcherService) processPosts() {
+	for post := range f.postsChan {
+		// Insert the post into MongoDB
 		db.InsertPost(post)
+		log.Printf("Processed post by %s with title '%s'", post.Author, post.Title)
 	}
-	f.mu.Unlock()
-
-	_, remaining, reset := f.extractRateLimitHeaders(resp)
-	if remaining <= 1 {
-		delay = time.Duration(reset+1) * time.Second
-		log.Printf("Rate limit reached, waiting for %d seconds to reset", reset)
-	} else {
-		delay = 2 * time.Second
-		log.Printf("Rate limit remaining: %d, adjusting delay to %v", remaining, delay)
-	}
-
-	return delay
 }
 
 // refreshOAuthToken refreshes the OAuth token by calling the OAuth service
@@ -129,7 +124,7 @@ func (f *FetcherService) refreshOAuthToken() {
 	f.oauthToken = tokenResp.AccessToken
 }
 
-// GetPosts retrieves all posts stored in MongoDB
+// GetPosts retrieves all posts stored in MongoDB and returns them via the API
 func (f *FetcherService) GetPosts(c *gin.Context) {
 	posts, err := db.FindAllPosts()
 	if err != nil {
@@ -137,13 +132,4 @@ func (f *FetcherService) GetPosts(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"posts": posts})
-}
-
-// extractRateLimitHeaders extracts Reddit API rate limit headers
-func (f *FetcherService) extractRateLimitHeaders(resp *http.Response) (used, remaining, reset int) {
-	used, _ = strconv.Atoi(resp.Header.Get("X-Ratelimit-Used"))
-	remaining, _ = strconv.Atoi(resp.Header.Get("X-Ratelimit-Remaining"))
-	reset, _ = strconv.Atoi(resp.Header.Get("X-Ratelimit-Reset"))
-	log.Printf("Rate Limit: Used: %d, Remaining: %d, Reset: %d", used, remaining, reset)
-	return used, remaining, reset
 }
